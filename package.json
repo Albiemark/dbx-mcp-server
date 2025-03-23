@@ -11,9 +11,9 @@
     "build"
   ],
   "scripts": {
-    "build": "tsc && node -e \"const fs=require('fs');if(fs.existsSync('build/src/index.js')){fs.chmodSync('build/src/index.js', '755');}\"",
+    "build": "tsc && node --input-type=module -e \"import * as fs from 'fs'; if(fs.existsSync('build/src/index.js')){fs.chmodSync('build/src/index.js', '755');}\"",
     "build:skipcheck": "./build.sh",
-    "postinstall": "node -e \"if(process.env.NODE_ENV !== 'production') { require('child_process').execSync('npm run build', {stdio: 'inherit'}) }\"",
+    "postinstall": "node --input-type=module -e \"if(process.env.NODE_ENV !== 'production') { import('child_process').then(cp => cp.execSync('npm run build', {stdio: 'inherit'})); }\"",
     "watch": "tsc --watch",
     "inspector": "npx @modelcontextprotocol/inspector build/src/index.js",
     "test": "jest --config=jest.config.cjs",

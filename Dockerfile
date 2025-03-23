@@ -5,14 +5,23 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
+# Set NODE_ENV to production to skip the postinstall script
+ENV NODE_ENV=production
+
 # Install all dependencies (including dev dependencies)
 RUN npm ci
 
 # Copy source code
 COPY . .
 
+# Install TypeScript globally
+RUN npm install -g typescript
+
+# Create a custom tsconfig.json that excludes test files
+RUN echo '{ "extends": "./tsconfig.json", "exclude": ["tests/**/*"] }' > tsconfig.build.json
+
 # Build the application directly with TypeScript compiler
-RUN npm run build
+RUN tsc -p tsconfig.build.json && node --input-type=module -e "import * as fs from 'fs'; if(fs.existsSync('build/src/index.js')){fs.chmodSync('build/src/index.js', '755');}"
 RUN chmod +x ./build/src/index.js
 
 # Production stage
