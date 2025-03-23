@@ -6,18 +6,16 @@ build:
 deploy:
   type: service
   port: 8080
-  health_check:
+  health:
     path: /health
     port: 8080
-    initial_delay_seconds: 10
-    period_seconds: 30
-    timeout_seconds: 5
-    success_threshold: 1
-    failure_threshold: 3
+    initialDelaySeconds: 10
+    periodSeconds: 30
+    timeoutSeconds: 5
+    successThreshold: 1
+    failureThreshold: 3
 env:
   - name: NODE_ENV
     value: production
   - name: LOG_LEVEL
     value: info
-  # Add other environment variables as needed, or configure them in Smithery's dashboard
-  # For sensitive values like DROPBOX_APP_KEY, DROPBOX_APP_SECRET, etc., use Smithery's secrets management
