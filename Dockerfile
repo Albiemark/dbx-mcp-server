@@ -11,8 +11,9 @@ RUN npm ci
 # Copy source code
 COPY . .
 
-# Build the application
-RUN npm run build
+# Build the application directly with TypeScript compiler
+RUN npx tsc
+RUN chmod +x ./build/src/index.js
 
 # Production stage
 FROM node:18-alpine AS production
