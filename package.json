@@ -5,17 +5,17 @@
   "private": true,
   "type": "module",
   "bin": {
-    "dbx-mcp-server": "./build/index.js"
+    "dbx-mcp-server": "./build/src/index.js"
   },
   "files": [
     "build"
   ],
   "scripts": {
-    "build": "tsc && node -e \"const fs=require('fs');if(fs.existsSync('build/index.js'))fs.chmodSync('build/index.js', '755')\"",
+    "build": "tsc && node -e \"const fs=require('fs');if(fs.existsSync('build/src/index.js')){fs.chmodSync('build/src/index.js', '755');}\"",
     "build:skipcheck": "./build.sh",
     "prepare": "npm run build",
     "watch": "tsc --watch",
-    "inspector": "npx @modelcontextprotocol/inspector build/index.js",
+    "inspector": "npx @modelcontextprotocol/inspector build/src/index.js",
     "test": "jest --config=jest.config.cjs",
     "test:watch": "jest --watch --config=jest.config.cjs",
     "test:coverage": "jest --coverage --config=jest.config.cjs",
