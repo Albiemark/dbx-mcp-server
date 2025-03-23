@@ -12,7 +12,7 @@ RUN npm ci
 COPY . .
 
 # Build the application directly with TypeScript compiler
-RUN npx tsc
+RUN NODE_ENV=production npx tsc
 RUN chmod +x ./build/src/index.js
 
 # Production stage
