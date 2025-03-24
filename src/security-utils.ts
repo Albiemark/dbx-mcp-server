@@ -13,25 +13,39 @@ function getValidatedKey() {
         );
     }
 
-    // Convert base64 key to buffer if it's base64 encoded
-    const validatedKey = key.includes('+') || key.includes('/') || key.includes('=')
-        ? Buffer.from(key, 'base64')
-        : Buffer.from(key);
+    try {
+        // First try to decode the key from base64
+        const decodedKey = Buffer.from(key, 'base64');
+        
+        // If the decoded key is too short, try using the original key
+        if (decodedKey.length < 32) {
+            // Try using the original key directly
+            const directKey = Buffer.from(key);
+            if (directKey.length >= 32) {
+                return directKey.slice(0, 32);
+            }
+            throw new McpError(
+                ErrorCode.InvalidParams,
+                'TOKEN_ENCRYPTION_KEY must be at least 32 bytes when decoded'
+            );
+        }
 
-    // Ensure key is 32 bytes
-    if (validatedKey.length < 32) {
+        return decodedKey.slice(0, 32);
+    } catch (error) {
+        if (error instanceof McpError) {
+            throw error;
+        }
         throw new McpError(
             ErrorCode.InvalidParams,
-            'TOKEN_ENCRYPTION_KEY must be at least 32 bytes when decoded'
+            'TOKEN_ENCRYPTION_KEY must be a valid base64 encoded string or at least 32 bytes long'
         );
     }
-
-    return validatedKey;
 }
 
 export interface EncryptedTokenData {
     iv: string;
     encryptedData: string;
+    authTag: string;
 }
 
 const ALGORITHM = 'aes-256-gcm';
@@ -52,18 +66,16 @@ export function encryptData(data: any): EncryptedTokenData {
         const jsonStr = JSON.stringify(data);
         
         // Encrypt the data
-        let encryptedData = cipher.update(jsonStr, 'utf8', 'hex');
-        encryptedData += cipher.final('hex');
+        let encryptedData = cipher.update(jsonStr, 'utf8', 'base64');
+        encryptedData += cipher.final('base64');
         
         // Get the auth tag
         const authTag = cipher.getAuthTag();
         
-        // Combine the encrypted data and auth tag
-        const finalEncryptedData = encryptedData + authTag.toString('hex');
-        
         return {
-            iv: iv.toString('hex'),
-            encryptedData: finalEncryptedData
+            iv: iv.toString('base64'),
+            encryptedData: encryptedData,
+            authTag: authTag.toString('base64')
         };
     } catch (error) {
         console.error('Encryption error:', error);
@@ -76,36 +88,52 @@ export function encryptData(data: any): EncryptedTokenData {
 
 export function decryptData(encryptedData: EncryptedTokenData): any {
     try {
-        // Extract the auth tag from the end of the encrypted data (last 16 bytes)
-        const authTagLength = 32; // 16 bytes in hex = 32 characters
-        const encryptedHex = encryptedData.encryptedData;
-        const authTag = Buffer.from(
-            encryptedHex.slice(-authTagLength), 
-            'hex'
-        );
-        const encryptedContent = encryptedHex.slice(0, -authTagLength);
+        const iv = Buffer.from(encryptedData.iv, 'base64');
+        const authTag = Buffer.from(encryptedData.authTag, 'base64');
+        
+        console.log('Decrypting data:', {
+            ivLength: iv.length,
+            authTagLength: authTag.length,
+            encryptedDataLength: encryptedData.encryptedData.length
+        });
         
         // Create decipher
         const decipher = createDecipheriv(
             ALGORITHM,
             getValidatedKey().slice(0, 32),
-            Buffer.from(encryptedData.iv, 'hex')
+            iv
         );
         
         // Set auth tag
         decipher.setAuthTag(authTag);
         
         // Decrypt the data
-        let decrypted = decipher.update(encryptedContent, 'hex', 'utf8');
+        let decrypted = decipher.update(encryptedData.encryptedData, 'base64', 'utf8');
         decrypted += decipher.final('utf8');
         
         if (!decrypted) {
             throw new Error('Decryption produced empty result');
         }
         
-        return JSON.parse(decrypted);
+        const parsedData = JSON.parse(decrypted);
+        console.log('Decrypted data:', {
+            hasAccessToken: !!parsedData?.accessToken,
+            hasRefreshToken: !!parsedData?.refreshToken,
+            accessTokenLength: parsedData?.accessToken?.length,
+            refreshTokenLength: parsedData?.refreshToken?.length,
+            expiresAt: parsedData?.expiresAt,
+            scope: parsedData?.scope,
+            hasCodeVerifier: !!parsedData?.codeVerifier,
+            keys: Object.keys(parsedData)
+        });
+        
+        return parsedData;
     } catch (error) {
-        console.error('Decryption error:', error);
+        console.error('Decryption error:', {
+            error: error instanceof Error ? error.message : 'Unknown error',
+            type: error instanceof Error ? error.constructor.name : typeof error,
+            stack: error instanceof Error ? error.stack : undefined
+        });
         throw new McpError(
             ErrorCode.InternalError,
             'Failed to decrypt token data. The data may be corrupted or the encryption key may be invalid.'
