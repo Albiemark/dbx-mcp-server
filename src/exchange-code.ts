@@ -1,33 +1,26 @@
 import * as auth from './auth.js';
-import { createInterface } from 'readline';
+import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 
-const rl = createInterface({
-  input: process.stdin,
-  output: process.stdout
-});
+export async function exchangeCode(code: string, codeVerifier: string): Promise<void> {
+    if (!code) {
+        throw new McpError(
+            ErrorCode.InvalidParams,
+            'Authorization code is required'
+        );
+    }
 
-async function exchangeCode() {
-  try {
-    // Prompt for authorization code and code verifier
-    const code = await new Promise<string>((resolve) => {
-      rl.question('Enter the authorization code from the redirect URL: ', resolve);
-    });
+    if (!codeVerifier) {
+        throw new McpError(
+            ErrorCode.InvalidParams,
+            'Code verifier is required'
+        );
+    }
 
-    const codeVerifier = await new Promise<string>((resolve) => {
-      rl.question('Enter the code verifier from the previous step: ', resolve);
-    });
-
-    // Exchange code for tokens
-    const tokens = await auth.exchangeCodeForTokens(code.trim(), codeVerifier.trim());
-    
-    console.log('\nSuccess! Tokens have been saved.');
-    console.log('Access token expires at:', new Date(tokens.expiresAt).toLocaleString());
-    console.log('Scopes:', tokens.scope.join(', '));
-  } catch (error) {
-    console.error('\nError exchanging code for tokens:', error);
-  } finally {
-    rl.close();
-  }
+    try {
+        await auth.exchangeCodeForTokens(code.trim(), codeVerifier);
+        console.log('Successfully authenticated with Dropbox');
+    } catch (error) {
+        console.error('Failed to exchange code:', error);
+        throw error;
+    }
 }
-
-exchangeCode().catch(console.error);

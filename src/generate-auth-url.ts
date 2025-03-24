@@ -13,18 +13,11 @@ console.log('Environment variables:', {
 
 import * as auth from './auth.js';
 
-const { url, codeVerifier } = auth.generateAuthUrl();
-
-console.log(`
-Dropbox OAuth Setup Instructions:
-
-1. Visit this URL in your browser to authorize the application:
-${url}
-
-2. After authorization, you'll be redirected to your redirect URI with a code parameter.
-
-3. Copy the code from the URL and use it along with this code verifier to exchange for tokens:
-Code Verifier: ${codeVerifier}
-
-Note: Keep the code verifier safe - you'll need it to complete the OAuth flow.
-`);
+export function generateAuthUrl(): string {
+    const { url, codeVerifier } = auth.generateAuthUrl();
+    console.log('\nAuthorization URL:', url);
+    console.log('\nPlease visit this URL to authorize the application.');
+    // Store code verifier for later use in token exchange
+    process.env.TEMP_CODE_VERIFIER = codeVerifier;
+    return url;
+}

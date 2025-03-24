@@ -48,15 +48,14 @@ function encryptData(data) {
         // Convert data to JSON string
         var jsonStr = JSON.stringify(data);
         // Encrypt the data
-        var encryptedData = cipher.update(jsonStr, 'utf8', 'hex');
-        encryptedData += cipher.final('hex');
+        var encryptedData = cipher.update(jsonStr, 'utf8', 'base64');
+        encryptedData += cipher.final('base64');
         // Get the auth tag
         var authTag = cipher.getAuthTag();
-        // Combine the encrypted data and auth tag
-        var finalEncryptedData = encryptedData + authTag.toString('hex');
         return {
-            iv: iv.toString('hex'),
-            encryptedData: finalEncryptedData
+            iv: iv.toString('base64'),
+            encryptedData: encryptedData,
+            authTag: authTag.toString('base64')
         };
     }
     catch (error) {
@@ -66,22 +65,18 @@ function encryptData(data) {
 }
 function decryptData(encryptedData) {
     try {
-        // Extract the auth tag from the end of the encrypted data (last 16 bytes)
-        var authTagLength = 32; // 16 bytes in hex = 32 characters
-        var encryptedHex = encryptedData.encryptedData;
-        var authTag = Buffer.from(encryptedHex.slice(-authTagLength), 'hex');
-        var encryptedContent = encryptedHex.slice(0, -authTagLength);
+        const iv = Buffer.from(encryptedData.iv, 'base64');
+        const authTag = Buffer.from(encryptedData.authTag, 'base64');
         // Create decipher
-        var decipher = (0, crypto_1.createDecipheriv)(ALGORITHM, getValidatedKey().slice(0, 32), Buffer.from(encryptedData.iv, 'hex'));
-        // Set auth tag
+        var decipher = (0, crypto_1.createDecipheriv)(ALGORITHM, getValidatedKey().slice(0, 32), iv);
         decipher.setAuthTag(authTag);
         // Decrypt the data
-        var decrypted = decipher.update(encryptedContent, 'hex', 'utf8');
-        decrypted += decipher.final('utf8');
-        if (!decrypted) {
+        var decryptedData = decipher.update(encryptedData.encryptedData, 'base64', 'utf8');
+        decryptedData += decipher.final('utf8');
+        if (!decryptedData) {
             throw new Error('Decryption produced empty result');
         }
-        return JSON.parse(decrypted);
+        return JSON.parse(decryptedData);
     }
     catch (error) {
         console.error('Decryption error:', error);
@@ -91,7 +86,7 @@ function decryptData(encryptedData) {
 function validateCorsOrigin(origin) {
     var _a;
     var allowedOrigins = ((_a = process.env.CORS_ALLOWED_ORIGINS) === null || _a === void 0 ? void 0 : _a.split(',')) || [];
-    return allowedOrigins.includes(origin);
+    return allowedOrigins.includes(origin) || allowedOrigins.includes('*');
 }
 var TokenRefreshError = /** @class */ (function (_super) {
     __extends(TokenRefreshError, _super);

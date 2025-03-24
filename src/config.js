@@ -1,5 +1,5 @@
-import dotenv from 'dotenv';
-import winston from 'winston';
+import * as dotenv from 'dotenv';
+import { createLogger, format, transports } from 'winston';
 import path from 'path';
 import fs from 'fs';
 import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
@@ -37,20 +37,20 @@ catch (error) {
     throw new McpError(ErrorCode.InternalError, `Failed to create logs directory at ${logsDir}: ${fsError.message}`);
 }
 // Configure Winston logger
-const logger = winston.createLogger({
+const logger = createLogger({
     level: process.env.LOG_LEVEL || 'info',
-    format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
+    format: format.combine(format.timestamp(), format.json()),
     defaultMeta: { service: 'dropbox-mcp-server' },
     transports: [
         // Error logs
-        new winston.transports.File({
+        new transports.File({
             filename: path.join(logsDir, 'error.log'),
             level: 'error',
             maxsize: 5242880, // 5MB
             maxFiles: 5,
         }),
         // Combined logs
-        new winston.transports.File({
+        new transports.File({
             filename: path.join(logsDir, 'combined.log'),
             maxsize: 5242880, // 5MB
             maxFiles: 5,
@@ -59,8 +59,8 @@ const logger = winston.createLogger({
 });
 // Add console transport in development, but only for stderr
 if (process.env.NODE_ENV !== 'production') {
-    logger.add(new winston.transports.Console({
-        format: winston.format.combine(winston.format.colorize(), winston.format.simple()),
+    logger.add(new transports.Console({
+        format: format.combine(format.colorize(), format.simple()),
         stderrLevels: ['error', 'warn', 'info', 'debug'], // Send all logs to stderr
     }));
 }
@@ -97,12 +97,12 @@ for (const envVar of safetyEnvVars) {
     }
 }
 // Configure audit logging
-const auditLogger = winston.createLogger({
+const auditLogger = createLogger({
     level: 'info',
-    format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
+    format: format.combine(format.timestamp(), format.json()),
     defaultMeta: { service: 'dropbox-mcp-server-audit' },
     transports: [
-        new winston.transports.File({
+        new transports.File({
             filename: path.join(logsDir, 'audit.log'),
             maxsize: 5242880, // 5MB
             maxFiles: 5,

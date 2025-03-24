@@ -4,6 +4,7 @@ import { getValidAccessToken } from './auth.js';
 import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import { config, log } from './config.js';
 import { files } from 'dropbox/types';
+import axios from 'axios';
 
 // Error mapping for better error messages
 const ERROR_MESSAGES = {
@@ -15,6 +16,9 @@ const ERROR_MESSAGES = {
     server_error: 'Dropbox server error occurred',
     network_error: 'Network error occurred while connecting to Dropbox'
 } as const;
+
+// Default timeout for API calls (15 seconds instead of 3)
+const DEFAULT_TIMEOUT = 15000;
 
 // Helper function to handle Dropbox API errors
 function handleDropboxError(error: any): never {
@@ -42,48 +46,22 @@ function handleDropboxError(error: any): never {
 
 // Get a Dropbox client with a valid token
 async function getDropboxClient(): Promise<Dropbox> {
-    const token = config.dropbox.accessToken || await getValidAccessToken();
-    return new Dropbox({ accessToken: token });
+    try {
+        const token = await getValidAccessToken();
+        return new Dropbox({ accessToken: token });
+    } catch (error) {
+        log.error('Failed to get valid access token:', error);
+        throw new McpError(
+            ErrorCode.InvalidRequest,
+            'Failed to get valid access token. Please re-authenticate.'
+        );
+    }
 }
 
 // Helper function to format paths for Dropbox API
 function formatDropboxPath(path: string): string {
     if (!path || path === '/') return '';
     return '/' + path.replace(/^\/+|\/+$/g, '');
-}
-
-async function listFiles(path: string): Promise<McpToolResponse> {
-    try {
-        const client = await getDropboxClient();
-        const response = await client.filesListFolder({
-            path: formatDropboxPath(path),
-            recursive: false,
-            include_media_info: true,
-            include_deleted: false,
-            include_has_explicit_shared_members: false,
-            include_mounted_folders: true,
-            include_non_downloadable_files: true
-        });
-
-        // Convert entries to a simpler format for listing
-        const files = response.result.entries.map(entry => ({
-            '.tag': entry['.tag'],
-            name: entry.name,
-            path_display: entry.path_display,
-            size: entry['.tag'] === 'file' ? entry.size : 0,
-            server_modified: entry['.tag'] === 'file' ? entry.server_modified : null,
-            client_modified: entry['.tag'] === 'file' ? entry.client_modified : null
-        }));
-
-        return {
-            content: [{
-                type: 'text',
-                text: JSON.stringify(files, null, 2)
-            }],
-        };
-    } catch (error: any) {
-        handleDropboxError(error);
-    }
 }
 
 async function uploadFile(path: string, content: string): Promise<McpToolResponse> {
@@ -822,8 +800,113 @@ async function getFileContent(path: string): Promise<McpToolResponse> {
     }
 }
 
+// Get access token directly from environment if available
+function getAccessTokenFromEnv(): string | null {
+    if (process.env.DROPBOX_ACCESS_TOKEN) {
+        log.info('Using access token from environment variable');
+        return process.env.DROPBOX_ACCESS_TOKEN;
+    }
+    return null;
+}
+
+// Add this to the beginning of makeDbxApiCall function
+async function makeDbxApiCall(
+    endpoint: string, 
+    method: 'post' | 'get' = 'post', 
+    data: any = null, 
+    additionalHeaders: Record<string, string> = {}
+): Promise<any> {
+    try {
+        // First try to get token from environment
+        let accessToken = getAccessTokenFromEnv();
+        
+        // If not available, get from auth module
+        if (!accessToken) {
+            accessToken = await getValidAccessToken();
+        }
+        
+        // Log a partial token for debugging
+        log.debug('Using access token', {
+            tokenPrefix: accessToken ? accessToken.substring(0, 10) + '...' : 'null',
+            tokenLength: accessToken ? accessToken.length : 0,
+            fromEnv: !!getAccessTokenFromEnv()
+        });
+        
+        const headers = {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+            ...additionalHeaders
+        };
+
+        const requestConfig = {
+            method,
+            url: `https://api.dropboxapi.com/2/${endpoint}`,
+            headers,
+            data: data ? JSON.stringify(data) : undefined,
+            timeout: DEFAULT_TIMEOUT
+        };
+
+        log.debug('Making Dropbox API request', {
+            endpoint,
+            method,
+            dataKeys: data ? Object.keys(data) : []
+        });
+
+        const response = await axios(requestConfig);
+        return response.data;
+    } catch (error) {
+        log.error('Dropbox API error:', error);
+        
+        if (axios.isAxiosError(error) && error.response) {
+            log.error('Response details:', {
+                status: error.response.status,
+                data: error.response.data
+            });
+        }
+        
+        throw error;
+    }
+}
+
+async function listFiles(path: string): Promise<any> {
+    try {
+        // Normalize the path to be either empty string for root or Dropbox format
+        const normalizedPath = path === '/' ? '' : path;
+        
+        log.debug('Listing files with normalized path', {
+            originalPath: path,
+            normalizedPath
+        });
+        
+        const result = await makeDbxApiCall('files/list_folder', 'post', {
+            path: normalizedPath,
+            recursive: false,
+            include_media_info: false,
+            include_deleted: false,
+            include_has_explicit_shared_members: false
+        });
+        
+        const entries = result.entries.map((entry: any) => ({
+            name: entry.name,
+            path: entry.path_display,
+            type: entry['.tag'],
+            size: entry.size,
+            isFolder: entry['.tag'] === 'folder'
+        }));
+        
+        return {
+            content: [{
+                type: 'text',
+                text: JSON.stringify(entries, null, 2)
+            }]
+        };
+    } catch (error) {
+        log.error('Error listing files:', error);
+        throw handleDropboxError(error);
+    }
+}
+
 export { 
-    listFiles, 
     uploadFile, 
     downloadFile, 
     deleteItem,
@@ -836,4 +919,5 @@ export {
     getSharingLink, 
     getAccountInfo,
     getFileContent,
+    listFiles,
 };
