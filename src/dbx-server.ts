@@ -21,6 +21,8 @@ import { config, log } from './config.js';
 import * as dbxApi from './dbx-api.js';
 import axios, { AxiosError } from 'axios';
 import * as fs from 'fs';
+import { z } from 'zod';
+import { SearchOptions } from './types.js';
 
 // Define resource templates
 const resourceTemplates = [
@@ -50,61 +52,30 @@ const resourceTemplates = [
   }
 ];
 
-interface SearchOptions {
-  query: string;
-  path?: string;
-  maxResults?: number;
-  fileExtensions?: string[];
-  fileCategories?: string[];
-  dateRange?: {
-    start: string;
-    end: string;
-  };
-  includeContentMatch?: boolean;
-  sortBy?: 'relevance' | 'last_modified_time' | 'file_size';
-  order?: 'asc' | 'desc';
-}
-
 export default class DbxServer {
   private server: Server;
+  private transport: StdioServerTransport;
 
   constructor() {
+    this.transport = new StdioServerTransport();
     this.server = new Server(
       {
         name: 'dbx-mcp-server',
-        version: '0.1.0',
+        version: '0.1.0'
       },
       {
         capabilities: {
-          resources: {
-            types: ["dbx-file", "dbx-folder"],
-          },
           tools: {
             tools: toolDefinitions
-          },
-          prompts: {
-            listChanged: true
           }
-        },
+        }
       }
     );
-    this.setupHandlers();
-    this.setupPromptHandlers();
-  }
 
-  private setupPromptHandlers() {
-    this.server.setRequestHandler(ListPromptsRequestSchema, handleListPrompts);
-    this.server.setRequestHandler(GetPromptRequestSchema, handleGetPrompt);
+    this.setupHandlers();
   }
 
   private setupHandlers() {
-    // Resource handlers
-    this.server.setRequestHandler(ListResourcesRequestSchema, handleListResources);
-    this.server.setRequestHandler(ReadResourceRequestSchema, handleReadResource);
-    this.server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({
-      resourceTemplates
-    }));
-
     // Tool handlers
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: toolDefinitions
@@ -112,11 +83,16 @@ export default class DbxServer {
 
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       try {
+        log.info('Received tool request:', {
+          method: request.method,
+          params: request.params
+        });
+
         // Force token refresh before handling each request
         await this.ensureValidToken();
 
         // Verify authentication
-        if (!config.dropbox.accessToken && !await getValidAccessToken()) {
+        if (!process.env.DROPBOX_ACCESS_TOKEN && !await getValidAccessToken()) {
           throw new McpError(
             ErrorCode.InvalidRequest,
             'No valid access token available. Please authenticate first.'
@@ -124,7 +100,7 @@ export default class DbxServer {
         }
 
         // Log request (without sensitive data)
-        log.info('Tool request:', { 
+        log.info('Processing tool request:', { 
           tool: request.params.name,
           args: this.sanitizeArgs(request.params.arguments)
         });
@@ -133,12 +109,16 @@ export default class DbxServer {
         const result = await (async () => {
           switch (request.params.name) {
             case 'list_files':
+              log.info('Handling list_files request');
               return await this.listFiles(request.params.arguments);
             case 'upload_file':
+              log.info('Handling upload_file request');
               return await this.uploadFile(request.params.arguments);
             case 'download_file':
+              log.info('Handling download_file request');
               return await this.downloadFile(request.params.arguments);
             case 'safe_delete_item':
+              log.info('Handling safe_delete_item request');
               return await this.safeDeleteItem(request.params.arguments);
             case 'delete_item':
               // Legacy delete operation - logs a warning and uses safe delete with default settings
@@ -150,14 +130,19 @@ export default class DbxServer {
                 permanent: true
               });
             case 'create_folder':
+              log.info('Handling create_folder request');
               return await this.createFolder(request.params.arguments);
             case 'copy_item':
+              log.info('Handling copy_item request');
               return await this.copyItem(request.params.arguments);
             case 'move_item':
+              log.info('Handling move_item request');
               return await this.moveItem(request.params.arguments);
             case 'get_file_metadata':
+              log.info('Handling get_file_metadata request');
               return await this.getFileMetadata(request.params.arguments);
             case 'search_file_db': {
+              log.info('Handling search_file_db request');
               const searchOptions: SearchOptions = {
                 query: String(request.params.arguments?.query),
                 path: String(request.params.arguments?.path || ''),
@@ -172,12 +157,16 @@ export default class DbxServer {
               return await this.searchFiles(searchOptions);
             }
             case 'get_sharing_link':
+              log.info('Handling get_sharing_link request');
               return await this.getSharingLink(request.params.arguments);
             case 'get_account_info':
+              log.info('Handling get_account_info request');
               return await this.getAccountInfo();
             case 'get_file_content':
+              log.info('Handling get_file_content request');
               return await this.getFileContent(request.params.arguments);
             default:
+              log.error('Unknown tool requested:', { tool: request.params.name });
               throw new McpError(
                 ErrorCode.MethodNotFound,
                 `Unknown tool: ${request.params.name}`
@@ -185,11 +174,21 @@ export default class DbxServer {
           }
         })();
 
+        log.info('Tool request completed successfully:', {
+          tool: request.params.name,
+          result
+        });
+
         return {
           content: result.content,
           _meta: {}
         };
       } catch (error) {
+        log.error('Error handling tool request:', {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          stack: error instanceof Error ? error.stack : undefined
+        });
+
         if (error instanceof McpError) {
           throw error;
         }
@@ -248,11 +247,6 @@ export default class DbxServer {
       log.warn('Failed to verify access token:', error);
       // Continue initialization
     }
-
-    log.info('Connecting to transport...');
-    const transport = new StdioServerTransport();
-    await this.server.connect(transport);
-    log.info(`Dbx MCP server running on stdio`);
   }
 
   // Add a simple method to force refresh the token before any API calls
@@ -384,6 +378,16 @@ export default class DbxServer {
   
   // Public method to run the server
   async run(): Promise<void> {
-    await this.initialize();
+    try {
+      await this.initialize();
+      await this.server.connect(this.transport);
+      log.info('Dbx MCP server running on stdio');
+    } catch (error) {
+      log.error('Failed to start server:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      throw error;
+    }
   }
 }

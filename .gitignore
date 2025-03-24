@@ -5,8 +5,10 @@ downloads/
 
 # Environment and secrets
 .env
-.tokens.json
-token
+.tokens.json*
+new-token.json
+test-token.js
+test-tokens.js
 *.key
 *.pem
 *.cert
@@ -46,7 +48,7 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
-*.bak
+*.bak.*
 *~
 
 # Build output
@@ -65,3 +67,14 @@ src/test-config-update.js
 claude-config-test.json
 .gitignore
 cline-config-test.json
+
+# Backup files
+backup/
+*.bak.*
+
+# Test and temporary files
+direct-*.js
+simple-*.js
+test-*.js
+successful-response.json
+run-mcp-server.sh
