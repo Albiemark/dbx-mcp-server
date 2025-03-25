@@ -1,0 +1,1 @@
+{"server":{"name":"dbx-mcp-server","host":"localhost","port":8080,"tools":[{"name":"list_files","description":"List files in a Dropbox folder","parameters":{"path":{"type":"string","description":"Path to list files from"}}}]}}
