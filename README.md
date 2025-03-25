@@ -1,214 +1,270 @@
-# dbx-mcp-server
+# Dropbox MCP Server
 
-A Model Context Protocol (MCP) server that provides integration with Dropbox, allowing MCP-compatible clients to interact with Dropbox through a set of powerful tools.
+A Model Context Protocol (MCP) server implementation for Dropbox integration, providing secure file operations and management capabilities.
 
-**Important Disclaimer:** This project is not affiliated with, endorsed by, or sponsored by Dropbox. It is an independent integration that works with Dropbox's public API.
+## Overview
 
-## Table of Contents
+The Dropbox MCP Server provides a standardized interface for AI models to interact with Dropbox through the Model Context Protocol. It supports secure file operations, token management, and advanced search capabilities.
 
-- [Quick Start](#quick-start)
-- [Installation](#installation)
-- [Authentication](#authentication)
-- [Available Tools](#available-tools)
-- [Configuration](#configuration)
-- [Usage Examples](#usage-examples)
-- [Testing](#testing)
-- [Development](#development)
-- [License](#license)
+## Features
 
-## Quick Start
+- Secure token management with automatic refresh
+- File operations (list, upload, download, search, share, delete)
+- Advanced search capabilities with multiple filters
+- Safety controls for file operations
+- Encrypted token storage
+- Comprehensive logging
+- MCP protocol compliance
 
-1. Clone the repository
-2. Run `npm install` to install dependencies
-3. Run `npm run build` to build the project
-4. Register a Dropbox app at [Dropbox App Console](https://www.dropbox.com/developers/apps):
-   - Choose "Scoped access" API
-   - Choose the access type your app needs
-   - Name your app and click "Create app"
-   - Under "Permissions", select the required permissions:
-     - `files.metadata.read`
-     - `files.content.read`
-     - `files.content.write`
-     - `sharing.write`
-     - `account_info.read`
-   - Add `http://localhost:3000/callback` as your redirect URI
-   - Note your App key and App secret
-5. Run the setup script:
-   ```bash
-   npm run setup
-   ```
-6. Configure your MCP client to use the server
+## System Architecture
 
-## Installation
+### Class Diagram
+```mermaid
+classDiagram
+    class DbxServer {
+        -server: Server
+        -transport: StdioServerTransport
+        +constructor()
+        +run(): Promise<void>
+        -setupHandlers()
+        -ensureValidToken(): Promise<void>
+        -searchFiles(options: SearchOptions)
+        -getSharingLink(args)
+        -getAccountInfo()
+        -getFileContent(args)
+    }
 
-1. **Clone the repository**
+    class TokenData {
+        +accessToken: string
+        +refreshToken: string
+        +expiresAt: number
+        +scope: string[]
+        +accountId?: string
+        +teamId?: string
+        +uid?: string
+        +codeVerifier: string
+    }
 
-   ```bash
-   git clone https://github.com/your-username/dbx-mcp-server.git
-   cd dbx-mcp-server
-   ```
+    class SearchOptions {
+        +query: string
+        +path?: string
+        +maxResults?: number
+        +fileExtensions?: string[]
+        +fileCategories?: string[]
+        +dateRange?: DateRange
+        +includeContentMatch?: boolean
+        +sortBy?: string
+        +order?: string
+    }
 
-2. **Install dependencies and build**
+    DbxServer --> TokenData : uses
+    DbxServer --> SearchOptions : uses
+```
 
-   ```bash
-   npm install
-   npm run build
-   ```
+### Authentication Flow
+```mermaid
+sequenceDiagram
+    participant Client
+    participant DbxServer
+    participant Dropbox
+    participant TokenStore
 
-3. **Run the setup script**
+    Client->>DbxServer: Initialize
+    DbxServer->>TokenStore: Load tokens
+    alt Tokens exist and valid
+        TokenStore-->>DbxServer: Return tokens
+    else No tokens or invalid
+        DbxServer->>Dropbox: Generate auth URL
+        Dropbox-->>DbxServer: Auth URL
+        DbxServer-->>Client: Request authorization
+        Client->>Dropbox: Visit auth URL
+        Dropbox-->>Client: Authorization code
+        Client->>DbxServer: Submit code
+        DbxServer->>Dropbox: Exchange code for tokens
+        Dropbox-->>DbxServer: Access & refresh tokens
+        DbxServer->>TokenStore: Save tokens
+    end
+```
 
-   ```bash
-   npm run setup
-   ```
+### Request Handling Flow
+```mermaid
+flowchart TD
+    A[Client Request] --> B{Parse Request}
+    B -->|Valid| C[Validate Token]
+    B -->|Invalid| E[Return Error]
+    
+    C -->|Token Valid| D{Route Request}
+    C -->|Token Invalid| F[Refresh Token]
+    
+    F -->|Success| D
+    F -->|Failure| G[Request Reauth]
+    
+    D -->|list_files| H[List Files]
+    D -->|upload_file| I[Upload File]
+    D -->|download_file| J[Download File]
+    D -->|search_file_db| K[Search Files]
+    D -->|get_sharing_link| L[Get Share Link]
+    D -->|safe_delete_item| M[Safe Delete]
+    
+    H --> N[Format Response]
+    I --> N
+    J --> N
+    K --> N
+    L --> N
+    M --> N
+    
+    N --> O[Send Response]
+```
 
-4. **Add to MCP settings**
+### Component Architecture
+```mermaid
+graph TB
+    subgraph "MCP Server Components"
+        A[DbxServer] --> B[Token Manager]
+        A --> C[File Operations]
+        A --> D[Search Engine]
+        A --> E[Safety Controls]
+        
+        B --> F[Token Encryption]
+        B --> G[Token Storage]
+        
+        C --> H[Dropbox API Client]
+        D --> H
+        E --> H
+    end
+    
+    subgraph "External Services"
+        H --> I[Dropbox API]
+    end
+    
+    subgraph "Security"
+        F --> J[Encryption Keys]
+        E --> K[Rate Limits]
+        E --> L[Path Controls]
+    end
+```
 
-   Add the following to your MCP settings file:
+### Token Management States
+```mermaid
+stateDiagram-v2
+    [*] --> CheckingToken
+    CheckingToken --> Valid: Token valid
+    CheckingToken --> NeedsRefresh: Near expiry
+    CheckingToken --> Invalid: No token/Expired
+    
+    NeedsRefresh --> RefreshingToken: Start refresh
+    RefreshingToken --> Valid: Refresh success
+    RefreshingToken --> Invalid: Refresh failed
+    
+    Invalid --> RequestingAuth: Request new auth
+    RequestingAuth --> ExchangingCode: Code received
+    ExchangingCode --> Valid: Exchange success
+    ExchangingCode --> Invalid: Exchange failed
+    
+    Valid --> [*]: Operation complete
+```
 
-   ```json
-   {
-     "mcpServers": {
-       "dbx": {
-         "command": "node",
-         "args": ["/path/to/dbx-mcp-server/build/index.js"]
-       }
-     }
-   }
-   ```
+## Setup and Configuration
 
-## Authentication
+1. Install dependencies:
+```bash
+npm install
+```
 
-The server uses OAuth 2.0 with PKCE for secure authentication with Dropbox.
+2. Create a `.env` file with the following configuration:
+```env
+# Dropbox API credentials
+DROPBOX_APP_KEY=your_app_key
+DROPBOX_APP_SECRET=your_app_secret
+DROPBOX_REDIRECT_URI=http://localhost
+TOKEN_ENCRYPTION_KEY=your_encryption_key
 
-### Environment Variables
+# Safety settings
+DROPBOX_RECYCLE_BIN_PATH=/Recycle
+DROPBOX_MAX_DELETES_PER_DAY=100
+DROPBOX_RETENTION_DAYS=30
+DROPBOX_ALLOWED_PATHS=/,/Apps
+DROPBOX_BLOCKED_PATHS=/System
 
-Required:
+# Logging settings
+LOG_LEVEL=debug
+CLIENT_LOG_LEVEL=warn
+```
 
-- `DROPBOX_APP_KEY`: Your Dropbox app's key
-- `DROPBOX_APP_SECRET`: Your Dropbox app's secret
-- `DROPBOX_REDIRECT_URI`: OAuth redirect URI
-- `TOKEN_ENCRYPTION_KEY`: 32+ character key for token encryption
+3. Run the setup:
+```bash
+npm run setup
+```
 
-Optional:
-
-- `TOKEN_REFRESH_THRESHOLD_MINUTES`: Minutes before expiration to refresh token (default: 5)
-- `MAX_TOKEN_REFRESH_RETRIES`: Maximum number of refresh attempts (default: 3)
-- `TOKEN_REFRESH_RETRY_DELAY_MS`: Delay between refresh attempts in ms (default: 1000)
+4. Start the server:
+```bash
+npm start
+```
 
 ## Available Tools
 
-### File Operations
+The server provides the following MCP tools:
 
-- `list_files`: List files in a directory
-- `upload_file`: Upload a file
-- `download_file`: Download a file
-- `safe_delete_item`: Safely delete with recycle bin support
-- `create_folder`: Create a new folder
-- `copy_item`: Copy a file or folder
-- `move_item`: Move or rename a file/folder
+- `list_files`: List files and folders in a directory
+- `upload_file`: Upload a file to Dropbox
+- `download_file`: Download a file from Dropbox
+- `search_file_db`: Search files with advanced filters
+- `get_sharing_link`: Create a sharing link for a file
+- `get_file_metadata`: Get detailed file information
+- `safe_delete_item`: Safely delete files with recycling
 
-### Metadata and Search
+## Safety Features
 
-- `get_file_metadata`: Get file/folder metadata
-- `search_file_db`: Search files and folders
-- `get_sharing_link`: Create sharing links
-- `get_file_content`: Get file contents
+- Token encryption at rest
+- Automatic token refresh
+- Rate limiting for operations
+- Path restrictions
+- Recycle bin for deletions
+- Retention period configuration
+- Comprehensive logging
 
-### Account Operations
+## Development
 
-- `get_account_info`: Get account information
-
-## Usage Examples
-
-```typescript
-// List files in root directory
-await mcp.useTool("dbx-mcp-server", "list_files", { path: "" });
-
-// Upload a file
-await mcp.useTool("dbx-mcp-server", "upload_file", {
-  path: "/test.txt",
-  content: Buffer.from("Hello World").toString("base64"),
-});
-
-// Search for files
-await mcp.useTool("dbx-mcp-server", "search_file_db", {
-  query: "report",
-  path: "/Documents",
-  max_results: 10,
-});
+Build the project:
+```bash
+npm run build
 ```
 
-## Testing
-
-Run the test suite:
-
+Run tests:
 ```bash
 npm test
 ```
 
-Tests verify all operations including authentication, file operations, and error handling.
-
-### Test Structure
-
-The test suite is organized into several modules:
-
-- **Dropbox Operations**: Tests for basic file operations (upload, download, list, etc.)
-- **Account Operations**: Tests for accessing account information
-- **Search and Delete**: Tests for search functionality and safe deletion with recycle bin support
-- **Resource System**: Tests for the MCP resource system integration
-
-### Handling Test Data
-
-The tests use dynamically generated file and folder names based on timestamps to avoid conflicts. Test data is automatically cleaned up after test execution.
-
-### Running Specific Tests
-
-To run a specific test file or test group:
-
+Run with inspector:
 ```bash
-npm test -- tests/dropbox/search-delete.test.ts  # Run specific test file
-npm test -- -t "should search for files"        # Run tests matching description
+npm run inspector
 ```
 
-### Troubleshooting Tests
+## Error Handling
 
-If tests fail with timing or authentication issues:
+The server implements comprehensive error handling:
+- Token validation and refresh errors
+- API rate limiting
+- Path validation
+- Operation safety checks
+- Network errors
+- Authentication errors
 
-1. Check that the mock implementations in `tests/setup.ts` match your test expectations
-2. Ensure test helpers are correctly configured
-3. For Jest scope errors, avoid referencing imported variables in mock factory functions
+## Logging
 
-## Development
+Logs are stored in the `logs` directory:
+- `error.log`: Error-level messages
+- `combined.log`: All log levels
+- Console output in development mode
 
-Built with:
+## Contributing
 
-- TypeScript
-- Model Context Protocol SDK
-- Dropbox SDK v10.34.0
-- Dropbox API v2
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
 
 ## License
 
-MIT License
-
-Copyright (c) 2025 MCP Server Contributors
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-[![smithery badge](https://smithery.ai/badge/@Albiemark/dbx-mcp-server)](https://smithery.ai/server/@Albiemark/dbx-mcp-server)
+This project is licensed under the MIT License - see the LICENSE file for details.
